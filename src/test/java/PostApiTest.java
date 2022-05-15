@@ -1,28 +1,38 @@
+import com.github.javafaker.Faker;
+import io.qameta.allure.Description;
 import model.*;
-
 import org.junit.Before;
 import org.junit.Test;
-// импортируем библиотеку генерации строк
-import org.apache.commons.lang3.RandomStringUtils;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.qameta.allure.junit4.DisplayName;
 import java.util.Arrays;
 import java.util.List;
 
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.notNullValue;
+
 public class PostApiTest {
 
     private final PostSteps steps = new PostSteps();
-    // с помощью библиотеки RandomStringUtils генерируем логин
-    // метод randomAlphabetic генерирует строку, состоящую только из букв, в качестве параметра передаём длину строки
-    String courierLogin = RandomStringUtils.randomAlphabetic(10);
-    // с помощью библиотеки RandomStringUtils генерируем пароль
-    String courierPassword = RandomStringUtils.randomAlphabetic(10);
-    // с помощью библиотеки RandomStringUtils генерируем имя курьера
-    String courierFirstName = RandomStringUtils.randomAlphabetic(10);
+    Faker faker = new Faker();
 
+    String courierLogin = faker.name().username();
+    String courierPassword = faker.internet().password();
+    String courierFirstName = faker.name().fullName();
+    String firstName = faker.name().fullName();
+    String lastName = faker.name().lastName();
+    String address = faker.address().streetAddress();
+    String phone = faker.phoneNumber().phoneNumber();
+    int metroStationId = 7;
+    int rentTime = 5;
+    String deliveryDate = "2022-07-07";
+    String comment = "some comment for courier";
     List<String> colors = Arrays.asList("BLACK", "GREY");
+
+    final String createCourierSameLoginMessage = "Этот логин уже используется. Попробуйте другой.";
+    final String createCourierWithoutParameterMessage = "Недостаточно данных для создания учетной записи";
+    final String loginCourierWithoutParameterMessage = "Недостаточно данных для входа";
+    final String loginNonExistCourierMessage = "Учетная запись не найдена";
 
     @Before
     public void setUp() {
@@ -30,11 +40,17 @@ public class PostApiTest {
     }
 
     @Test
-    @DisplayName("Check courier creation api/v1/courier")
+    @DisplayName("Check status code of api/v1/courier")
+    @Description("Basic test for api/v1/courier endpoint")
     public void testCourierCreation() throws JsonProcessingException {
         Courier courier = new Courier(courierLogin, courierPassword, courierFirstName);
-        steps.checkCourierCreate(courier);
-        steps.deleteCourierById(steps.getCourierId(courierLogin, courierPassword));
+
+        steps.createCourier(courier)
+                .then().assertThat().body("ok", equalTo(true))
+                .and()
+                .statusCode(201);;
+
+        steps.deleteCourierById(steps.getCourierId(courier));
     }
 
     @Test
@@ -42,8 +58,13 @@ public class PostApiTest {
     public void testSameLoginCourierCreation() throws JsonProcessingException {
         Courier courier = new Courier(courierLogin, courierPassword, courierFirstName);
         steps.createCourier(courier);
-        steps.checkCreateCourierWithSameLogin(courier);
-        steps.deleteCourierById(steps.getCourierId(courierLogin, courierPassword));
+
+        steps.createCourier(courier)
+                .then().assertThat().body("message", equalTo(createCourierSameLoginMessage))
+                .and()
+                .statusCode(409);
+
+        steps.deleteCourierById(steps.getCourierId(courier));
     }
 
     @Test
@@ -52,7 +73,11 @@ public class PostApiTest {
         Courier courier = new Courier();
         courier.setPassword(courierPassword);
         courier.setName(courierFirstName);
-        steps.checkCreateCourierWithoutParameter(courier);
+
+        steps.createCourier(courier)
+                .then().assertThat().body("message", equalTo(createCourierWithoutParameterMessage))
+                .and()
+                .statusCode(400);
     }
 
     @Test
@@ -61,7 +86,11 @@ public class PostApiTest {
         Courier courier = new Courier();
         courier.setLogin(courierLogin);
         courier.setName(courierFirstName);
-        steps.checkCreateCourierWithoutParameter(courier);
+
+        steps.createCourier(courier)
+                .then().assertThat().body("message", equalTo(createCourierWithoutParameterMessage))
+                .and()
+                .statusCode(400);
     }
 
     @Test
@@ -69,50 +98,64 @@ public class PostApiTest {
     public void testCourierLogin() throws JsonProcessingException {
         Courier courier = new Courier(courierLogin, courierPassword, courierFirstName);
         steps.createCourier(courier);
-        steps.checkCourierExist(steps.getCourierId(courier.getLogin(), courier.getPassword()));
-        steps.deleteCourierById(steps.getCourierId(courierLogin, courierPassword));
+
+        steps.loginCourier(courier)
+                .then().assertThat().body("id", notNullValue())
+                .and()
+                .statusCode(200);
+
+        steps.deleteCourierById(steps.getCourierId(courier));
     }
 
     @Test
-    @DisplayName("Check courier login without login api/v1/courier/login")
-    public void testCourierLoginWithoutParameter() throws JsonProcessingException {
+    @DisplayName("Check login courier without login api/v1/courier/login")
+    public void testCourierLoginWithoutLogin() throws JsonProcessingException {
         Courier courier = new Courier(courierLogin, courierPassword, null);
         steps.createCourier(courier);
         courier.setLogin(null);
 
-        ObjectMapper objectMapper = new ObjectMapper();
-        String courierJson = objectMapper.writeValueAsString(courier);
+        steps.loginCourier(courier)
+                .then().assertThat().body("message", equalTo(loginCourierWithoutParameterMessage))
+                .and()
+                .statusCode(400);
 
-        steps.checkCourierLoginWithoutParameter(courierJson);
-        steps.deleteCourierById(steps.getCourierId(courierLogin, courierPassword));
+        steps.deleteCourierById(steps.getCourierId(courier));
+    }
+
+    @Test
+    @DisplayName("Check login courier without password api/v1/courier/login") // return time out error, test failed
+    public void testCourierLoginWithoutPassword() throws JsonProcessingException {
+        Courier courier = new Courier(courierLogin, courierPassword, null);
+        steps.createCourier(courier);
+        courier.setPassword(null);
+
+        steps.loginCourier(courier)
+                .then().assertThat().body("message", equalTo(loginCourierWithoutParameterMessage))
+                .and()
+                .statusCode(400);
+
+        steps.deleteCourierById(steps.getCourierId(courier));
     }
 
     @Test
     @DisplayName("Check courier login with non existing login api/v1/courier/login")
     public void testNonExistCourierLogin() throws JsonProcessingException {
         Courier courier = new Courier(courierLogin, courierPassword, courierFirstName);
-        steps.checkNonExistCourierLogin(courier);
+
+        steps.loginCourier(courier)
+                .then().assertThat().body("message", equalTo(loginNonExistCourierMessage))
+                .and()
+                .statusCode(404);
     }
 
     @Test
     @DisplayName("Check order created api/v1/orders")
     public void testCreateOrder() {
+        Order order = new Order(firstName, lastName, address, metroStationId, phone, rentTime, deliveryDate, comment, colors);
 
-        Order order = new Order("Dmitriy", "Autotesterman",
-                "Freedom bvd, 17 apt.",7,
-                "+78889219192",
-                5,
-                "2022-06-06",
-                "some comment for courier",
-                colors
-        );
-        steps.checkGetOrderTrackNumber(order);
+        steps.createOrder(order)
+                .then().assertThat().body("track", notNullValue())
+                .and().statusCode(201);
     }
 
-    @Test
-    @DisplayName("Check courier's orders api/v1/orders?courierId=Id")
-    public void testGetCourierOrders() throws JsonProcessingException {
-        Courier courier = new Courier(courierLogin, courierPassword, courierFirstName);
-        steps.createCourier(courier);
-    }
 }
